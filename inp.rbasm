@@ -1,0 +1,18 @@
+MOV 6 A;
+ADD A 1;
+
+MOV 1 B;
+MOV 0 &0;
+
+LABEL: loop;
+
+MOV B C;
+MOV &0 B;
+ADD &0 C;
+
+SUB A 1;
+
+ADD C 1;
+JNZ A loop;
+
+OUT B;

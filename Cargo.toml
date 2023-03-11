@@ -1,0 +1,17 @@
+[package]
+name = "rba"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cranelift = "0.93.0"
+cranelift-jit = "0.93.0"
+cranelift-module = "0.93.0"
+cranelift-codegen = "0.93.0"
+cranelift-native = "0.93.0"
+pom = "3.2.0"
+
+[profile.dev]
+overflow-checks = false
