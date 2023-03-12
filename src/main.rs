@@ -1,6 +1,4 @@
-// building up layers of abstraction to go from nothing to
-// high level language, microprocessor/asm to python level
-
+use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
@@ -11,7 +9,9 @@ mod processor;
 mod parser;
 
 fn main() {
-    let mut file = File::open("inp.rbasm").unwrap();
+    let file = env::args().nth(1).unwrap();
+
+    let mut file = File::open(file).unwrap();
     let mut s = String::new();
     file.read_to_string(&mut s).unwrap();
 
@@ -22,6 +22,7 @@ fn main() {
     jit(&ins, 4096);
     // interpret(ins, 4096);
 }
+
 
 fn jit(ins: &[Ins], stack_size: u32) {
     let c = Instant::now();
