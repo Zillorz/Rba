@@ -50,7 +50,7 @@ Handle for stdout, stderr and stdin and 0, 1, and 2 respectively
 **Functions**
 1. `CALL write handle, ptr, num;` writes `num` bytes from `ptr` into `handle`
 2. `CALL read handle, ptr, num am;` reads at max `num` bytes from handle and puts them into `ptr`, returns amount of bytes read (into `am`)
-3. `CALL open_file ptr, num handle;` takes `num` bytes from `ptr`, parses them into utf8 bytes, and returns (writes into `handle`) file handle with that name
+3. `CALL open_file ptr, num handle;` takes `num` bytes from `ptr`, parses them into utf8 bytes, and returns (writes into `handle`) file handle with that name, overrides any previous file with that name
 4. `CALL close_file handle;` closes file handle stored in `handle`
 5. `RCALL stdout handle` `RCALL stdin handle` `RCALL stderr handle`, writes stdin, stderr, or stdout handle to `handle`
 
