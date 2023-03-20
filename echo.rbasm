@@ -1,8 +1,5 @@
-INC std;
+INC io;
 
-CALL malloc 64 Z;
-CALL gets_s Z, 63;
-CALL puts Z;
-CALL fflush 0;
-
-CALL printa 66;
+CALL malloc 1024 Z;
+CALL read 2, Z, 40 am;
+CALL write 0, Z, am;
