@@ -64,3 +64,10 @@ Included with `INC std;`
 2. `CALL printa val;` reads `val`, converts to utf8 character, and prints to console
 3. `CALL addr_8 addr out;` reads u8 from `addr` and returns (writes to `out`) it
 4. `CALL top_8 val out;` shifts `val` right 56 bits and returns (writes to `out`) it
+
+
+### C functions
+All C functions are also supported
+
+Notable functions
+1. `CALL malloc 1024 Z;` returns (writes to `Z`) 1024 byte pointer
