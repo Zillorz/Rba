@@ -71,3 +71,9 @@ All C functions are also supported
 
 Notable functions
 1. `CALL malloc size Z;` returns (writes to `Z`) a `size` byte pointer
+
+# Execution
+The program currently parses the text into tokens and runs them 2 ways
+
+1) JIT with cranelift (finished)
+2) Interpreting (WIP)
