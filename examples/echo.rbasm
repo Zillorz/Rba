@@ -1,0 +1,5 @@
+INC io;
+
+CALL malloc 1024 Z;
+CALL read 2, Z, 40 am;
+CALL write 0, Z, am;
