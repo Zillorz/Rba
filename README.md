@@ -70,4 +70,4 @@ Included with `INC std;`
 All C functions are also supported
 
 Notable functions
-1. `CALL malloc 1024 Z;` returns (writes to `Z`) 1024 byte pointer
+1. `CALL malloc size Z;` returns (writes to `Z`) a `size` byte pointer
