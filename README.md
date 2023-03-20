@@ -15,8 +15,8 @@ The & Operator gets the u64 value at an address:
 For example `OUT &100` will output the u64 at the 100th memory address
 
 2 types of constants
-1. Simple constants, a u64 number, can have underscores inbetween
-2. String constant, is the address of the string
+1. Simple constants, a u64 number, can have underscores inbetween `111_222_333`
+2. String constant, is the address of the string, `"Hello World!"`
 
 Labels, any text which does not contain any of the following `",\;` 
 
