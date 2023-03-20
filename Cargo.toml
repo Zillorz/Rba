@@ -12,6 +12,8 @@ cranelift-module = "0.93.0"
 cranelift-codegen = "0.93.0"
 cranelift-native = "0.93.0"
 pom = "3.2.0"
+libc = "0.2.140"
+rba-derive = { version = "0.1.0", path = "rba-derive" }
 
 [profile.dev]
 overflow-checks = false

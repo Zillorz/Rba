@@ -1,0 +1,3 @@
+INCLUDE io;
+
+CALL write 0, "Hello World!", 12;

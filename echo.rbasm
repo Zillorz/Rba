@@ -1,0 +1,8 @@
+INC std;
+
+CALL malloc 64 Z;
+CALL gets_s Z, 63;
+CALL puts Z;
+CALL fflush 0;
+
+CALL printa 66;
