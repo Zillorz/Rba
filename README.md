@@ -75,5 +75,5 @@ Notable functions
 # Execution
 The program currently parses the text into tokens and runs them 2 ways
 
-1) JIT with cranelift (finished)
-2) Interpreting (WIP)
+1) JIT with cranelift - fully featured
+2) Interpreting - only has 'malloc' and 'atol' as c functions, max of 3 arguments for all functions
