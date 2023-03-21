@@ -22,8 +22,8 @@ fn main() {
 
     dbg!(&ins);
 
-    // jit(&ins);
-    interpret(&ins);
+    jit(&ins);
+    // interpret(&ins);
 }
 
 fn jit(ins: &[Ins]) {
