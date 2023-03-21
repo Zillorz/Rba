@@ -67,13 +67,14 @@ Included with `INC std;`
 
 
 ### C functions
-All C functions are also supported
+All C functions are also supported (only in JIT)
 
 Notable functions
 1. `CALL malloc size Z;` returns (writes to `Z`) a `size` byte pointer
+2. `CALL atol ptr N;` returns (writes to `N`) the number in the string `ptr`
 
 # Execution
 The program currently parses the text into tokens and runs them 2 ways
 
-1) JIT with cranelift - fully featured
-2) Interpreting - only has 'malloc' and 'atol' as c functions, max of 3 arguments for all functions
+1) JIT with cranelift - fully featured, reccomended 
+2) Interpreting - only has 'malloc' and 'atol' as c functions, max of 3 arguments for all functions. Unlike JIT supported on all rust platforms with std
