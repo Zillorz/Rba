@@ -349,14 +349,20 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
     ret
 }
 
-pub unsafe fn execute(ins: &[AsmIns]) {
+pub unsafe fn execute(ins: &[AsmIns], provider: impl ModuleProvider) {
     let mut regs = HashMap::new();
 
     let mut lookup = HashMap::new();
+    let mut func = HashMap::new();
+    func.insert(String::from("malloc"), libc::malloc as *const u8);
+    func.insert(String::from("atol"), libc::atol as *const u8);
 
     for (idx, i) in ins.iter().enumerate() {
         match i {
             AsmIns::Label(addr) => { lookup.insert(addr, idx + 1); }
+            AsmIns::Include(lbl) => {
+                provider.get_ptrs(&mut func, lbl);
+            }
             _ => { }
         }
     }
@@ -364,7 +370,7 @@ pub unsafe fn execute(ins: &[AsmIns]) {
     let mut idx = 0;
     loop {
         if idx >= ins.len() { break; }
-        let ir = run_ins(&ins[idx], &mut regs);
+        let ir = run_ins(&ins[idx], &mut regs, &func);
 
         match ir {
             InsResult::Rewind(pos) => { idx = *lookup.get(&pos).expect("Invalid jump"); }
@@ -380,7 +386,7 @@ enum InsResult {
     Rewind(Label)
 }
 
-unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>) -> InsResult {
+unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap<String, *const u8>) -> InsResult {
     unsafe fn get_val1(v: Val, rgs: &mut HashMap<String, Word>) -> Word {
         match v {
             Val::Var(v) => { get_var1(v, rgs) }
@@ -493,21 +499,25 @@ unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>) -> InsResult {
             println!("{v}");
         }
         AsmIns::Call(lbl, params, out) => {
-            // gotta find a better way to do this
-            // implement modules (already made in jit) ^ the better way to do this
-            match lbl.as_str() {
-                "malloc" => {
-                    let out = out.clone().unwrap();
-                    let ret = libc::malloc(get_val(&params[0], rgs) as usize);
-                    set_var(&out, ret as usize as Word, rgs);
-                },
-                "printa" => {
-                    print_ascii(get_val(&params[0], rgs));
-                },
-                "printc" => {
-                    printc(get_val(&params[0], rgs));
+            let ptr = funcs.get(lbl);
+
+            // same thing with this match mess, someday this will be fixed :(
+            if let Some(ptr) = ptr {
+                let ptr = *ptr;
+                match (params.len(), out.is_some()) {
+                    (0, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn() -> Word>(ptr)(), rgs); }
+                    (1, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn(Word) -> Word>(ptr)(get_val(&params[0], rgs)), rgs); }
+                    (2, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn(Word, Word) -> Word>
+                        (ptr)(get_val(&params[0], rgs), get_val(&params[1], rgs)), rgs); }
+                    (3, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn(Word, Word, Word) -> Word>
+                        (ptr)(get_val(&params[0], rgs), get_val(&params[1], rgs), get_val(&params[2], rgs)), rgs); }
+                    (0, false) => { std::mem::transmute::<_, fn()>(ptr)() }
+                    (1, false) => { std::mem::transmute::<_, fn(Word)>(ptr)(get_val(&params[0], rgs)) }
+                    (2, false) => { std::mem::transmute::<_, fn(Word, Word)>(ptr)(get_val(&params[0], rgs), get_val(&params[1], rgs)) }
+                    (3, false) => { std::mem::transmute::<_, fn(Word, Word, Word)>(ptr)
+                        (get_val(&params[0], rgs), get_val(&params[1], rgs), get_val(&params[2], rgs)) }
+                    _ => {}
                 }
-                _ => { }
             }
         }
         _ => {}

@@ -22,8 +22,8 @@ fn main() {
 
     dbg!(&ins);
 
-    jit(&ins);
-    // interpret(&ins);
+    // jit(&ins);
+    interpret(&ins);
 }
 
 fn jit(ins: &[Ins]) {
@@ -32,6 +32,6 @@ fn jit(ins: &[Ins]) {
 }
 
 fn interpret(ins: &[Ins]) {
-    unsafe { asm::execute(ins) };
+    unsafe { asm::execute(ins, BorrowingModuleProvider) };
 }
 
