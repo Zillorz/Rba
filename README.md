@@ -12,7 +12,7 @@ A **variable** is denoted with a character, all variables exist in a program, bu
 All types are unsigned 64 bit ints (u64)
 
 The & Operator gets the u64 value at an address: 
-For example `OUT &100` will output the u64 at the 100th memory address
+For example `OUT &100` will output the u64 at the 100th memory address, think of it like a ptr deference
 
 2 types of constants
 1. Simple constants, a u64 number, can have underscores inbetween `111_222_333`
