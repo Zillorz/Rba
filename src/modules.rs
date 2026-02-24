@@ -1,12 +1,13 @@
+use crate::asm::{Addr, Word};
+use cranelift_jit::JITBuilder;
+use rba_derive::module;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::ptr;
-use cranelift_jit::JITBuilder;
-use rba_derive::module;
-use crate::asm::{Addr, Word};
 
-pub trait Module<K: Into<String>, T: IntoIterator<Item=(K, *const u8)>> {
+pub trait Module<K: Into<String>, T: IntoIterator<Item = (K, *const u8)>> {
+    #[allow(unused)]
     const NAME: &'static str;
 
     fn symbols() -> T;
@@ -17,7 +18,6 @@ pub trait ModuleProvider {
     fn get_ptrs(&self, hashmap: &mut HashMap<String, *const u8>, name: impl AsRef<str>);
 }
 
-pub type DefaultModuleProvider = BorrowingModuleProvider;
 pub struct BorrowingModuleProvider;
 
 impl ModuleProvider for BorrowingModuleProvider {
@@ -54,12 +54,18 @@ struct Std;
 
 #[module(std)]
 impl Std {
-    fn printc(val: Word) { println!("{val}") }
-    fn printa(val: Word) { print!("{}", char::from_u32(val as u32).unwrap()) }
-    fn top_8(val: Word) -> Word { val >> 56 }
+    fn printc(val: Word) {
+        println!("{val}")
+    }
+    fn printa(val: Word) {
+        print!("{}", char::from_u32(val as u32).unwrap())
+    }
+    fn top_8(val: Word) -> Word {
+        val >> 56
+    }
     fn addr_8(val: Addr) -> Word {
         unsafe {
-            let ptr: *mut u8 = std::mem::transmute(val);
+            let ptr: *mut u8 = std::ptr::with_exposed_provenance_mut(val as usize);
             ptr.read() as Word
         }
     }
@@ -71,14 +77,17 @@ struct Wp(Word);
 impl Write for Wp {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut write: Box<dyn Write> = match self.0 {
-            0 => { Box::new(std::io::stdout()) }
-            1 => { Box::new(std::io::stderr()) }
-            2 => { panic!() }
+            0 => Box::new(std::io::stdout()),
+            1 => Box::new(std::io::stderr()),
+            2 => {
+                panic!()
+            }
             n => unsafe {
-                let file: *mut File = std::mem::transmute(n);
+                let file: *mut File =
+                    std::ptr::with_exposed_provenance_mut::<std::fs::File>(n as usize);
 
                 Box::new(file.read())
-            }
+            },
         };
 
         let res = write.write(buf);
@@ -88,18 +97,21 @@ impl Write for Wp {
 
     fn flush(&mut self) -> std::io::Result<()> {
         let mut write: Box<dyn Write> = match self.0 {
-            0 => { Box::new(std::io::stdout()) }
-            1 => { Box::new(std::io::stderr()) }
-            2 => { panic!() }
+            0 => Box::new(std::io::stdout()),
+            1 => Box::new(std::io::stderr()),
+            2 => {
+                panic!()
+            }
             n => unsafe {
-                let file: *mut File = std::mem::transmute(n);
+                let file: *mut File =
+                    std::ptr::with_exposed_provenance_mut::<std::fs::File>(n as usize);
 
                 Box::new(file.read())
-            }
+            },
         };
 
         let res = write.flush();
-        std::mem::forget(write);
+        std::mem::forget(write); // we leak the write handle too
         res
     }
 }
@@ -107,16 +119,19 @@ impl Write for Wp {
 impl Read for Wp {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut read: Box<dyn Read> = match self.0 {
-            0 | 1 => { panic!() }
-            2 => { Box::new(std::io::stdin()) }
+            0 | 1 => {
+                panic!()
+            }
+            2 => Box::new(std::io::stdin()),
             n => unsafe {
-                let file: *mut File = std::mem::transmute(n);
+                let file: *mut File =
+                    std::ptr::with_exposed_provenance_mut::<std::fs::File>(n as usize);
 
                 Box::new(file.read())
-            }
+            },
         };
         let res = read.read(buf);
-        std::mem::forget(read);
+        std::mem::forget(read); // we the reader too
         res
     }
 }
@@ -125,13 +140,19 @@ struct IO;
 
 #[module(io)]
 impl IO {
-    fn stdout() -> Word { 0 }
-    fn stderr() -> Word { 1 }
-    fn stdin() -> Word { 2 }
+    fn stdout() -> Word {
+        0
+    }
+    fn stderr() -> Word {
+        1
+    }
+    fn stdin() -> Word {
+        2
+    }
 
     fn write(mut handle: Wp, data: Addr, num: Word) {
         unsafe {
-            let ptr: *mut u8 = std::mem::transmute(data);
+            let ptr: *mut u8 = std::ptr::with_exposed_provenance_mut::<u8>(data as usize);
             let slice = std::slice::from_raw_parts_mut(ptr, num as usize);
             handle.write_all(slice).unwrap();
         }
@@ -139,7 +160,7 @@ impl IO {
 
     fn read(handle: Wp, into: Addr, max: Word) -> Word {
         unsafe {
-            let ptr: *mut u8 = std::mem::transmute(into);
+            let ptr: *mut u8 = std::ptr::with_exposed_provenance_mut::<u8>(into as usize);
             let slice = std::slice::from_raw_parts_mut(ptr, max as usize);
             handle.take(max).read(slice).unwrap() as Word
         }
@@ -147,7 +168,7 @@ impl IO {
 
     fn open_file(name: Addr, num: Word) -> Wp {
         unsafe {
-            let ptr: *mut u8 = std::mem::transmute(name);
+            let ptr: *mut u8 = std::ptr::with_exposed_provenance_mut::<u8>(name as usize);
             let slice = std::slice::from_raw_parts_mut(ptr, num as usize);
             let string = String::from_utf8_lossy(slice);
 
@@ -155,14 +176,14 @@ impl IO {
             let mut bx = Box::new(file);
 
             let ptr = (bx.as_mut() as *mut File) as usize;
-            std::mem::forget(bx);
+            std::mem::forget(bx); // leak file handle's too
             Wp(ptr as Word)
         }
     }
 
     fn close_file(file: Wp) {
         unsafe {
-            let file: *mut File = std::mem::transmute(file);
+            let file: *mut File = std::ptr::with_exposed_provenance_mut::<File>(file.0 as usize);
 
             ptr::drop_in_place(file);
         }

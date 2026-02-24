@@ -1,13 +1,12 @@
-use std::collections::HashMap;
+use crate::modules::ModuleProvider;
 use cranelift::prelude::*;
 use cranelift_codegen::Context;
 use cranelift_codegen::ir::UserFuncName;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
-use crate::modules::ModuleProvider;
+use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use std::collections::HashMap;
 
-const PTR_LEN: usize = 8;
 const N_TYPE: Type = types::I64;
 
 pub(crate) type Word = u64;
@@ -18,21 +17,21 @@ type Label = String;
 #[repr(u8)]
 pub enum Var {
     Named(Label),
-    Addr(Box<Val>)
+    Addr(Box<Val>),
 }
 
 #[derive(Clone, Debug)]
 #[repr(u8)]
 pub enum Val {
     Var(Var),
-    Const(Const)
+    Const(Const),
 }
 
 #[derive(Clone, Debug)]
 #[repr(u8)]
 pub enum Const {
     Word(Word),
-    Str(*const u8)
+    Str(*const u8),
 }
 
 #[derive(Clone, Debug)]
@@ -49,18 +48,18 @@ pub enum AsmIns {
     Label(Label),
     JZ(Val, Label),
     JNz(Val, Label),
-    TakeInput,
-    CopyInput,
+    // TakeInput,
+    // CopyInput,
     Nop,
     Output(Val),
     Call(Label, Vec<Val>, Option<Var>),
-    Function(Label, Vec<AsmIns>)
+    // Function(Label, Vec<AsmIns>)
 }
 
-// Basic functions necessary for the execution
-fn printc(val: Word) { println!("{val}") }
-fn print_ascii(val: Word) { print!("{}", char::from_u32(val as u32).unwrap()) }
-fn top_8(val: Word) -> Word { val >> 56 }
+// used for OUT instruction
+fn printc(word: Word) {
+    println!("{word}");
+}
 
 // uses cranelift to generate x86 asm, faster than interpreting this processors instructions
 pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern "C" fn() {
@@ -74,20 +73,15 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
     });
 
     let flags = settings::Flags::new(flag_builder);
-    let isa = isa_builder
-        .finish(flags)
-        .unwrap();
+    let isa = isa_builder.finish(flags).unwrap();
 
     let mut builder = JITBuilder::with_isa(isa.clone(), default_libcall_names());
-    let printc_addr = printc as *const u8;
-    builder.symbol("printc", printc_addr);
+    // again, necessary for OUT
+    builder.symbol("printc", printc as *const u8);
 
     for i in ins {
-        match i {
-            AsmIns::Include(lib) => {
-                provider.add_functions(&mut builder, lib);
-            }
-            _ => { }
+        if let AsmIns::Include(lib) = i {
+            provider.add_functions(&mut builder, lib);
         }
     }
 
@@ -98,8 +92,14 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
 
     // every function has its own Memory space
     // Determine arg strategy soon, maybe arg1 arg2 arg3?
-    fn make_function(name: &str, signature: Signature,
-                     module: &mut JITModule, ctx: &mut Context, func_ctx: &mut FunctionBuilderContext, ins: &[AsmIns]) -> FuncId {
+    fn make_function(
+        name: &str,
+        signature: Signature,
+        module: &mut JITModule,
+        ctx: &mut Context,
+        func_ctx: &mut FunctionBuilderContext,
+        ins: &[AsmIns],
+    ) -> FuncId {
         let func_s = module
             .declare_function(name, Linkage::Export, &signature)
             .unwrap();
@@ -107,38 +107,42 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(N_TYPE));
 
-        let callee = module
-            .declare_function("printc", Linkage::Import, &sig)
-            .map_err(|e| e.to_string()).unwrap();
-
         ctx.func.signature = signature;
         ctx.func.name = UserFuncName::user(0, func_s.as_u32());
 
-        let local_callee = module
-            .declare_func_in_func(callee, &mut ctx.func);
+        // callee and local_callee are required for the OUT instruction
+        // we must redefine printc in this for some reaosn lmao
+        let callee = module
+            .declare_function("printc", Linkage::Import, &sig)
+            .map_err(|e| e.to_string())
+            .unwrap();
+
+        let local_callee = module.declare_func_in_func(callee, &mut ctx.func);
 
         let mut function_lookup = HashMap::new();
 
         for i in ins {
-            match i {
-                AsmIns::Call(label, params, out) => {
-                    if function_lookup.contains_key(label) { continue; }
-
-                    let mut sig = module.make_signature();
-                    for _ in 0..params.len() {
-                        sig.params.push(AbiParam::new(N_TYPE));
-                    }
-                    if out.is_some() { sig.returns.push(AbiParam::new(N_TYPE)); }
-
-                    let callee = module
-                        .declare_function(label, Linkage::Import, &sig)
-                        .map_err(|e| e.to_string()).unwrap();
-
-                    let func_ref = module.declare_func_in_func(callee, &mut ctx.func);
-
-                    function_lookup.insert(label, func_ref);
+            if let AsmIns::Call(label, params, out) = i {
+                if function_lookup.contains_key(label) {
+                    continue;
                 }
-                _ => { }
+
+                let mut sig = module.make_signature();
+                for _ in 0..params.len() {
+                    sig.params.push(AbiParam::new(N_TYPE));
+                }
+                if out.is_some() {
+                    sig.returns.push(AbiParam::new(N_TYPE));
+                }
+
+                let callee = module
+                    .declare_function(label, Linkage::Import, &sig)
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+
+                let func_ref = module.declare_func_in_func(callee, &mut ctx.func);
+
+                function_lookup.insert(label, func_ref);
             }
         }
 
@@ -152,23 +156,19 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
 
         struct Env {
             vl: HashMap<Label, Variable>,
-            vi: usize
+            vi: usize,
         }
 
         let mut env = Env {
             vl: variable_lookup,
-            vi: vidx
+            vi: vidx,
         };
 
         fn get_val1(v: Val, bcx: &mut FunctionBuilder, env: &mut Env) -> Value {
             match v {
-                Val::Var(v) => { get_var1(v, bcx, env) }
-                Val::Const(Const::Word(word)) => {
-                    bcx.ins().iconst(N_TYPE, word as i64)
-                }
-                Val::Const(Const::Str(string)) => {
-                    bcx.ins().iconst(N_TYPE, string as i64)
-                }
+                Val::Var(v) => get_var1(v, bcx, env),
+                Val::Const(Const::Word(word)) => bcx.ins().iconst(N_TYPE, word as i64),
+                Val::Const(Const::Str(string)) => bcx.ins().iconst(N_TYPE, string as i64),
             }
         }
 
@@ -176,9 +176,9 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
             match v {
                 Var::Named(label) => {
                     if let Some(v) = env.vl.get(&label) {
-                        bcx.use_var(v.clone())
+                        bcx.use_var(*v)
                     } else {
-                        panic!("Variable accessed before definition??");
+                        panic!("Variable accessed before definition. Yes, this is a panic...");
                     }
                 }
                 Var::Addr(bval) => {
@@ -188,11 +188,11 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
             }
         }
 
-        fn set_var1(var: Var, to: Value,  bcx: &mut FunctionBuilder, env: &mut Env) {
+        fn set_var1(var: Var, to: Value, bcx: &mut FunctionBuilder, env: &mut Env) {
             match var {
                 Var::Named(label) => {
                     if let Some(v) = env.vl.get(&label) {
-                        bcx.def_var(v.clone(), to)
+                        bcx.def_var(*v, to)
                     } else {
                         let v = bcx.declare_var(N_TYPE);
                         env.vi += 1;
@@ -208,17 +208,18 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
             }
         }
 
-        let get_value = |r: &Val, bcx: &mut FunctionBuilder, env: &mut Env| { get_val1(r.clone(), bcx, env) };
-        let get_var = |v: &Var, bcx: &mut FunctionBuilder, env: &mut Env| { get_var1(v.clone(), bcx, env) };
-        let set_var = |v: &Var, val: Value, bcx: &mut FunctionBuilder, env: &mut Env| { set_var1(v.clone(), val, bcx, env) };
+        let get_value =
+            |r: &Val, bcx: &mut FunctionBuilder, env: &mut Env| get_val1(r.clone(), bcx, env);
+        let get_var =
+            |v: &Var, bcx: &mut FunctionBuilder, env: &mut Env| get_var1(v.clone(), bcx, env);
+        let set_var = |v: &Var, val: Value, bcx: &mut FunctionBuilder, env: &mut Env| {
+            set_var1(v.clone(), val, bcx, env)
+        };
 
         for i in ins {
-            match i {
-                AsmIns::Label(id) => {
-                    let bl = bcx.create_block();
-                    block_lookup.insert(id, bl);
-                }
-                _ => { }
+            if let AsmIns::Label(id) = i {
+                let bl = bcx.create_block();
+                block_lookup.insert(id, bl);
             }
         }
 
@@ -271,7 +272,7 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                     set_var(var, v3, &mut bcx, &mut env);
                 }
                 AsmIns::JZ(val, addr) => {
-                    let bl = block_lookup.get(addr).unwrap().clone();
+                    let bl = *block_lookup.get(addr).unwrap();
                     let eb = bcx.create_block();
 
                     let bool = get_value(val, &mut bcx, &mut env);
@@ -280,7 +281,7 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                     // bcx.seal_block(eb);
                 }
                 AsmIns::JNz(val, addr) => {
-                    let bl = block_lookup.get(&addr).unwrap().clone();
+                    let bl = *block_lookup.get(&addr).unwrap();
                     let eb = bcx.create_block();
 
                     let bool = get_value(val, &mut bcx, &mut env);
@@ -289,20 +290,23 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                     // bcx.seal_block(eb);
                 }
                 AsmIns::Label(id) => {
-                    let bl = block_lookup.get(&id).unwrap().clone();
+                    let bl = *block_lookup.get(&id).unwrap();
                     bcx.ins().jump(bl, &[]);
 
                     bcx.insert_block_after(bl, bcx.current_block().unwrap());
                     bcx.switch_to_block(bl);
                 }
                 AsmIns::Output(val) => {
-                    let val= get_value(val, &mut bcx, &mut env);
+                    let val = get_value(val, &mut bcx, &mut env);
                     bcx.ins().call(local_callee, &[val]);
                 }
                 AsmIns::Call(label, params, ret) => {
-                    let args: Vec<Value> = params.iter().map(|arg| get_value(arg, &mut bcx, &mut env)).collect();
+                    let args: Vec<Value> = params
+                        .iter()
+                        .map(|arg| get_value(arg, &mut bcx, &mut env))
+                        .collect();
 
-                    let inst = bcx.ins().call(function_lookup.get(label).unwrap().clone(), &args);
+                    let inst = bcx.ins().call(*function_lookup.get(label).unwrap(), &args);
 
                     if let Some(ret) = ret {
                         let out = bcx.inst_results(inst)[0];
@@ -310,7 +314,7 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                         set_var(ret, out, &mut bcx, &mut env);
                     }
                 }
-                _ => { }
+                _ => {}
             }
         }
 
@@ -329,11 +333,8 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
 
     module.finalize_definitions().unwrap();
 
-
     let code_main = module.get_finalized_function(func_main);
-    let ret = unsafe { std::mem::transmute::<_, unsafe extern "C" fn()>(code_main) };
-
-    ret
+    unsafe { std::mem::transmute::<_, unsafe extern "C" fn()>(code_main) }
 }
 
 pub unsafe fn execute(ins: &[AsmIns], provider: impl ModuleProvider) {
@@ -346,39 +347,51 @@ pub unsafe fn execute(ins: &[AsmIns], provider: impl ModuleProvider) {
 
     for (idx, i) in ins.iter().enumerate() {
         match i {
-            AsmIns::Label(addr) => { lookup.insert(addr, idx + 1); }
+            AsmIns::Label(addr) => {
+                lookup.insert(addr, idx + 1);
+            }
             AsmIns::Include(lbl) => {
                 provider.get_ptrs(&mut func, lbl);
             }
-            _ => { }
+            _ => {}
         }
     }
 
     let mut idx = 0;
     loop {
-        if idx >= ins.len() { break; }
+        if idx >= ins.len() {
+            break;
+        }
         let ir = unsafe { run_ins(&ins[idx], &mut regs, &func) };
 
         match ir {
-            InsResult::Rewind(pos) => { idx = *lookup.get(&pos).expect("Invalid jump"); }
-            _ => { idx += 1; }
+            InsResult::Rewind(pos) => {
+                idx = *lookup.get(&pos).expect("Invalid jump");
+            }
+            _ => {
+                idx += 1;
+            }
         }
     }
 }
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 enum InsResult {
-    Failure,
+    // Failure,
     Success,
-    Rewind(Label)
+    Rewind(Label),
 }
 
-unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap<String, *const u8>) -> InsResult {
+unsafe fn run_ins(
+    ins: &AsmIns,
+    rgs: &mut HashMap<String, Word>,
+    funcs: &HashMap<String, *const u8>,
+) -> InsResult {
     unsafe fn get_val1(v: Val, rgs: &mut HashMap<String, Word>) -> Word {
         match v {
-            Val::Var(v) => { get_var1(v, rgs) }
-            Val::Const(Const::Word(w)) => { w }
-            Val::Const(Const::Str(ptr)) => { ptr as Word }
+            Val::Var(v) => unsafe { get_var1(v, rgs) },
+            Val::Const(Const::Word(w)) => w,
+            Val::Const(Const::Str(ptr)) => ptr as Word,
         }
     }
 
@@ -390,13 +403,13 @@ unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap
                 } else {
                     0
                 }
-            },
+            }
             Var::Addr(bval) => {
-                let addr = get_val1(*bval, rgs) as usize;
+                let addr = unsafe { get_val1(*bval, rgs) as usize };
 
                 // wildly unsafe, but language specification demands it
-                let u64 = unsafe { *std::mem::transmute::<usize, *const u64>(addr) };
-                u64
+                // exposed provenance is NOT making this safer LMAO
+                unsafe { *std::ptr::with_exposed_provenance::<u64>(addr as usize) }
             }
         }
     }
@@ -411,12 +424,12 @@ unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap
                 }
             }
             Var::Addr(bval) => {
-                let addr = get_val1(*bval, rgs);
+                let addr = unsafe { get_val1(*bval, rgs) };
                 let addr = addr as usize;
-                
+
                 // wildly unsafe, but language specification demands it
-                let u64 = unsafe { std::mem::transmute::<usize, *mut u64>(addr) };
-                
+                let u64 = std::ptr::with_exposed_provenance_mut::<u64>(addr);
+
                 unsafe {
                     *u64 = to;
                 }
@@ -424,15 +437,11 @@ unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap
         }
     }
 
-    let get_val = |v: &Val, rgs: &mut HashMap<String, Word>| {
-        get_val1(v.clone(), rgs)
-    };
+    let get_val = |v: &Val, rgs: &mut HashMap<String, Word>| unsafe { get_val1(v.clone(), rgs) };
 
-    let get_var = |v: &Var, rgs: &mut HashMap<String, Word>| {
-        get_var1(v.clone(), rgs)
-    };
+    let get_var = |v: &Var, rgs: &mut HashMap<String, Word>| unsafe { get_var1(v.clone(), rgs) };
 
-    let mut set_var = |v: &Var, val: Word, rgs: &mut HashMap<String, Word>| {
+    let set_var = |v: &Var, val: Word, rgs: &mut HashMap<String, Word>| unsafe {
         set_var1(v.clone(), val, rgs);
     };
 
@@ -475,11 +484,15 @@ unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap
         }
         AsmIns::JZ(val, addr) => {
             let val = get_val(val, rgs);
-            if val == 0 { return InsResult::Rewind(addr.clone()); }
+            if val == 0 {
+                return InsResult::Rewind(addr.clone());
+            }
         }
         AsmIns::JNz(val, addr) => {
             let val = get_val(val, rgs);
-            if val != 0 { return InsResult::Rewind(addr.clone()); }
+            if val != 0 {
+                return InsResult::Rewind(addr.clone());
+            }
         }
         AsmIns::Output(val) => {
             let v = get_val(val, rgs);
@@ -489,20 +502,64 @@ unsafe fn run_ins(ins: &AsmIns, rgs: &mut HashMap<String, Word>, funcs: &HashMap
             let ptr = funcs.get(lbl);
 
             // same thing with this match mess, someday this will be fixed :(
+            // this is insane
             if let Some(ptr) = ptr {
                 let ptr = *ptr;
                 match (params.len(), out.is_some()) {
-                    (0, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn() -> Word>(ptr)(), rgs); }
-                    (1, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn(Word) -> Word>(ptr)(get_val(&params[0], rgs)), rgs); }
-                    (2, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn(Word, Word) -> Word>
-                        (ptr)(get_val(&params[0], rgs), get_val(&params[1], rgs)), rgs); }
-                    (3, true) => { set_var(out.as_ref().unwrap(), std::mem::transmute::<_, fn(Word, Word, Word) -> Word>
-                        (ptr)(get_val(&params[0], rgs), get_val(&params[1], rgs), get_val(&params[2], rgs)), rgs); }
-                    (0, false) => { std::mem::transmute::<_, fn()>(ptr)() }
-                    (1, false) => { std::mem::transmute::<_, fn(Word)>(ptr)(get_val(&params[0], rgs)) }
-                    (2, false) => { std::mem::transmute::<_, fn(Word, Word)>(ptr)(get_val(&params[0], rgs), get_val(&params[1], rgs)) }
-                    (3, false) => { std::mem::transmute::<_, fn(Word, Word, Word)>(ptr)
-                        (get_val(&params[0], rgs), get_val(&params[1], rgs), get_val(&params[2], rgs)) }
+                    (0, true) => {
+                        set_var(
+                            out.as_ref().unwrap(),
+                            unsafe { std::mem::transmute::<*const u8, fn() -> u64>(ptr) }(),
+                            rgs,
+                        );
+                    }
+                    (1, true) => {
+                        set_var(
+                            out.as_ref().unwrap(),
+                            unsafe { std::mem::transmute::<*const u8, fn(u64) -> u64>(ptr) }(
+                                get_val(&params[0], rgs),
+                            ),
+                            rgs,
+                        );
+                    }
+                    (2, true) => {
+                        set_var(
+                            out.as_ref().unwrap(),
+                            unsafe { std::mem::transmute::<*const u8, fn(u64, u64) -> u64>(ptr) }(
+                                get_val(&params[0], rgs),
+                                get_val(&params[1], rgs),
+                            ),
+                            rgs,
+                        );
+                    }
+                    (3, true) => {
+                        set_var(
+                            out.as_ref().unwrap(),
+                            unsafe {
+                                std::mem::transmute::<*const u8, fn(u64, u64, u64) -> u64>(ptr)
+                            }(
+                                get_val(&params[0], rgs),
+                                get_val(&params[1], rgs),
+                                get_val(&params[2], rgs),
+                            ),
+                            rgs,
+                        );
+                    }
+                    (0, false) => (unsafe { std::mem::transmute::<*const u8, fn()>(ptr) })(),
+                    (1, false) => (unsafe { std::mem::transmute::<*const u8, fn(u64)>(ptr) })(
+                        get_val(&params[0], rgs),
+                    ),
+                    (2, false) => (unsafe { std::mem::transmute::<*const u8, fn(u64, u64)>(ptr) })(
+                        get_val(&params[0], rgs),
+                        get_val(&params[1], rgs),
+                    ),
+                    (3, false) => {
+                        (unsafe { std::mem::transmute::<*const u8, fn(u64, u64, u64)>(ptr) })(
+                            get_val(&params[0], rgs),
+                            get_val(&params[1], rgs),
+                            get_val(&params[2], rgs),
+                        )
+                    }
                     _ => {}
                 }
             }
