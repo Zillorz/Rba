@@ -1,15 +1,11 @@
 use std::collections::HashMap;
-use std::ops::Deref;
-use codegen::ir::UserFuncName;
 use cranelift::prelude::*;
 use cranelift_codegen::Context;
-use cranelift_codegen::data_value::DataValue;
-use cranelift_codegen::gimli::ReaderOffset;
-use cranelift_codegen::ir::{DynamicStackSlotData, DynamicType, StackSlot};
+use cranelift_codegen::ir::UserFuncName;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
-use crate::modules::{DefaultModuleProvider, Module as AModule, ModuleProvider};
+use crate::modules::ModuleProvider;
 
 const PTR_LEN: usize = 8;
 const N_TYPE: Type = types::I64;
@@ -61,10 +57,7 @@ pub enum AsmIns {
     Function(Label, Vec<AsmIns>)
 }
 
-use cranelift_codegen::isa::{Builder, LookupError, OwnedTargetIsa};
-use libc::{c_char, c_int, size_t};
-use pom::Parser;
-
+// Basic functions necessary for the execution
 fn printc(val: Word) { println!("{val}") }
 fn print_ascii(val: Word) { print!("{}", char::from_u32(val as u32).unwrap()) }
 fn top_8(val: Word) -> Word { val >> 56 }
@@ -74,7 +67,7 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
     let mut flag_builder = settings::builder();
     flag_builder.set("use_colocated_libcalls", "false").unwrap();
     // FIXME set back to true once the x64 backend supports it.
-    flag_builder.set("is_pic", "true").unwrap();
+    // flag_builder.set("is_pic", "true").unwrap();
     flag_builder.set("opt_level", "speed").unwrap();
     let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
         panic!("host machine is not supported: {}", msg);
@@ -153,8 +146,8 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
         let block = bcx.create_block();
         bcx.switch_to_block(block);
 
-        let mut vidx = 0;
-        let mut variable_lookup = HashMap::new();
+        let vidx = 0;
+        let variable_lookup = HashMap::new();
         let mut block_lookup = HashMap::new();
 
         struct Env {
@@ -185,12 +178,7 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                     if let Some(v) = env.vl.get(&label) {
                         bcx.use_var(v.clone())
                     } else {
-                        let v = Variable::new(env.vi);
-                        env.vi += 1;
-
-                        env.vl.insert(label, v.clone());
-                        bcx.declare_var(v, N_TYPE);
-                        bcx.use_var(v)
+                        panic!("Variable accessed before definition??");
                     }
                 }
                 Var::Addr(bval) => {
@@ -206,11 +194,10 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                     if let Some(v) = env.vl.get(&label) {
                         bcx.def_var(v.clone(), to)
                     } else {
-                        let v = Variable::new(env.vi);
+                        let v = bcx.declare_var(N_TYPE);
                         env.vi += 1;
 
-                        env.vl.insert(label, v.clone());
-                        bcx.declare_var(v, N_TYPE);
+                        env.vl.insert(label, v);
                         bcx.def_var(v, to)
                     }
                 }
@@ -221,9 +208,9 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
             }
         }
 
-        let mut get_value = |r: &Val, bcx: &mut FunctionBuilder, env: &mut Env| { get_val1(r.clone(), bcx, env) };
-        let mut get_var = |v: &Var, bcx: &mut FunctionBuilder, env: &mut Env| { get_var1(v.clone(), bcx, env) };
-        let mut set_var = |v: &Var, val: Value, bcx: &mut FunctionBuilder, env: &mut Env| { set_var1(v.clone(), val, bcx, env) };
+        let get_value = |r: &Val, bcx: &mut FunctionBuilder, env: &mut Env| { get_val1(r.clone(), bcx, env) };
+        let get_var = |v: &Var, bcx: &mut FunctionBuilder, env: &mut Env| { get_var1(v.clone(), bcx, env) };
+        let set_var = |v: &Var, val: Value, bcx: &mut FunctionBuilder, env: &mut Env| { set_var1(v.clone(), val, bcx, env) };
 
         for i in ins {
             match i {
@@ -370,7 +357,7 @@ pub unsafe fn execute(ins: &[AsmIns], provider: impl ModuleProvider) {
     let mut idx = 0;
     loop {
         if idx >= ins.len() { break; }
-        let ir = run_ins(&ins[idx], &mut regs, &func);
+        let ir = unsafe { run_ins(&ins[idx], &mut regs, &func) };
 
         match ir {
             InsResult::Rewind(pos) => { idx = *lookup.get(&pos).expect("Invalid jump"); }

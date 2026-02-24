@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::ops::AddAssign;
-use std::os::windows::io::FromRawHandle;
-use std::process::Stdio;
 use std::ptr;
 use cranelift_jit::JITBuilder;
 use rba_derive::module;
