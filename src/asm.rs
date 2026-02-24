@@ -150,18 +150,16 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
         let block = bcx.create_block();
         bcx.switch_to_block(block);
 
-        let vidx = 0;
         let variable_lookup = HashMap::new();
         let mut block_lookup = HashMap::new();
 
+        // this still exists in case we need more than 'vl'
         struct Env {
             vl: HashMap<Label, Variable>,
-            vi: usize,
         }
 
         let mut env = Env {
             vl: variable_lookup,
-            vi: vidx,
         };
 
         fn get_val1(v: Val, bcx: &mut FunctionBuilder, env: &mut Env) -> Value {
@@ -178,7 +176,12 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                     if let Some(v) = env.vl.get(&label) {
                         bcx.use_var(*v)
                     } else {
-                        panic!("Variable accessed before definition. Yes, this is a panic...");
+                        let v = bcx.declare_var(N_TYPE);
+
+                        env.vl.insert(label, v);
+                        let val = bcx.ins().iconst(N_TYPE, 0);
+                        bcx.def_var(v, val);
+                        bcx.use_var(v)
                     }
                 }
                 Var::Addr(bval) => {
@@ -195,7 +198,6 @@ pub fn into_cr<M: ModuleProvider>(ins: &[AsmIns], provider: M) -> unsafe extern 
                         bcx.def_var(*v, to)
                     } else {
                         let v = bcx.declare_var(N_TYPE);
-                        env.vi += 1;
 
                         env.vl.insert(label, v);
                         bcx.def_var(v, to)
